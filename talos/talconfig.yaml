@@ -72,5 +72,10 @@ nodes:
       size: ">=100GB"
 
 
+patches:
+  - "@./patches/common.yaml"
 
-    
+
+
+
+

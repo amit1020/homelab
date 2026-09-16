@@ -76,6 +76,11 @@ patches:
   - "@./patches/common.yaml"
 
 
+controlPlane:
+  patches:
+    - "@./patches/controlplane.yaml"
 
-
+worker:
+  patches:
+    - "@./patches/worker.yaml"
 

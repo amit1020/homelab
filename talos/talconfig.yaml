@@ -56,3 +56,21 @@ nodes:
         dhcp: true
         vip:
           ip: 192.168.99.9
+
+  #Worker1
+  - hostname: worker1
+    ipAddress: 192.168.99.31
+    controlPlane: false
+    installDiskSelector:
+      size: ">=100GB"
+
+    #Worker2
+  - hostname: worker2
+    ipAddress: 192.168.99.32
+    controlPlane: false
+    installDiskSelector:
+      size: ">=100GB"
+
+
+
+    

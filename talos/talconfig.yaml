@@ -1,0 +1,26 @@
+clusterName: homelab
+talosVersion: v1.14.0
+kubernetesVersion: v1.37.0
+endpoint:  https://192.168.99.9:6443
+
+
+
+
+additionalApiServerCertSans:
+  - 192.168.99.9
+  - 127.0.0.1
+
+additionalMachineCertSans:
+  - 192.168.99.9
+  #In the future(When I'll add dns) - I'll configure static record "k8s.lan" point to 192.168.99.9
+  - k8s.lan
+  - 127.0.0.1
+
+cniConfig:
+  name: none #Ciluim will created seperated
+
+
+nodes:
+  - hostname:
+    ipAddress:
+    

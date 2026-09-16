@@ -1,0 +1,60 @@
+#!/bin/sh
+# pre-commit — blocks commits that contain unencrypted secrets.
+# Enable with: git config core.hooksPath .githooks
+set -e
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'
+FAILED=0
+
+# --- Check 1: every *.sops.yaml file must actually be encrypted ---
+for f in $(git diff --cached --name-only --diff-filter=ACM | grep '\.sops\.ya?ml$' || true); do
+  if ! git show ":$f" 2>/dev/null | grep -q "ENC\[AES256_GCM"; then
+    printf "${RED}x %s is NOT encrypted${NC}\n" "$f"
+    FAILED=1
+  else
+    printf "${GREEN}v %s is encrypted${NC}\n" "$f"
+  fi
+done
+
+# --- Check 2: files that must never be committed ---
+for f in $(git diff --cached --name-only --diff-filter=ACM); do
+  case "$f" in
+    *talosconfig|*kubeconfig|*/keys.txt|*.agekey|*secrets.yaml|talos/talsecret.yaml)
+      printf "${RED}x %s must never be committed${NC}\n" "$f"
+      FAILED=1
+      ;;
+  esac
+done
+
+# --- Check 3: private key material in the staged diff ---
+# A real age key is the prefix plus 58 more characters. The shorter form
+# appears in docs and in this script, so match on full length only.
+if git diff --cached | grep -qE "AGE-SECRET-KEY-1[A-Z0-9]{50,}"; then
+  printf "${RED}x staged changes contain an age private key${NC}\n"
+  FAILED=1
+fi
+if git diff --cached | grep -qE "BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY"; then
+  printf "${RED}x staged changes contain a private key${NC}\n"
+  FAILED=1
+fi
+
+# --- Check 4: gitleaks scan, if the tool is available ---
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks protect --staged --no-banner --redact; then
+    printf "${RED}x gitleaks found a secret${NC}\n"
+    FAILED=1
+  else
+    printf "${GREEN}v gitleaks clean${NC}\n"
+  fi
+else
+  printf "${YELLOW}! gitleaks not installed - run: brew install gitleaks${NC}\n"
+fi
+
+if [ "$FAILED" -ne 0 ]; then
+  printf "\n${RED}Commit blocked.${NC}\n"
+  printf "Override only if you are certain: git commit --no-verify\n\n"
+  exit 1
+fi
+
+exit 0
+

@@ -1,0 +1,27 @@
+#Automatic files created by talos
+talos/clusterconfig/
+talosconfig
+kubeconfig
+*.kubeconfig
+secrets.yaml
+talsecret.yaml
+
+# Decrypt files
+*.decrypted.yaml
+*.dec.yaml
+*.decrypted.*
+
+#Keys
+*.agekey
+age.key
+keys.t
+*.pem
+*.key
+
+#Environments
+.env
+.envrc
+*.tfvars
+
+#System
+.DS_Store

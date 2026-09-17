@@ -32,3 +32,13 @@ ingress:
   - subnet: 192.168.99.0/24
   - subnet: 10.10.10.0/24
 ---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: kubelet
+portSelector:
+  ports:
+    - 10250
+  protocol: tcp
+ingress:
+  - subnet: 192.168.99.0/24
+---

@@ -1,0 +1,6 @@
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+nodeLabels:
+  node-role.kubernetes.io/worker: ""
+  topology.kubernetes.io/zone: worker-host
+---

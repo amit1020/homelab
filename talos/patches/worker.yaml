@@ -20,3 +20,15 @@ extraMounts:
 apiVersion: v1alpha1
 kind: NetworkDefaultActionConfig
 ingress: block
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: talos-api
+portSelector:
+  ports:
+    - 50000
+  protocol: tcp
+ingress:
+  - subnet: 192.168.99.0/24
+  - subnet: 10.10.10.0/24
+---

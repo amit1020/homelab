@@ -1,80 +1,76 @@
 clusterName: homelab
-talosVersion: v1.14.0
-kubernetesVersion: v1.37.0
-endpoint:  https://192.168.99.9:6443
+talosVersion: v1.14.1
+kubernetesVersion: v1.36.3
+endpoint: https://192.168.99.9:6443
 
+clusterPodNets:
+  - 10.244.0.0/16
+clusterSvcNets:
+  - 10.96.0.0/12
+domain: cluster.local
 
-
+cniConfig:
+  name: none
 
 additionalApiServerCertSans:
   - 192.168.99.9
   - 127.0.0.1
-
 additionalMachineCertSans:
   - 192.168.99.9
-  #In the future(When I'll add dns) - I'll configure static record "k8s.lan" point to 192.168.99.9
-  - k8s.lan
-  - 127.0.0.1
-
-cniConfig:
-  name: none #Ciluim will created seperated
-
 
 nodes:
-  #CP1
   - hostname: cp-1
     ipAddress: 192.168.99.21
     controlPlane: true
+    nameservers: [192.168.99.1, 1.1.1.1]
     installDiskSelector:
-      size: ">=50GB"
+      size: ">= 50GB"
     networkInterfaces:
       - interface: eth0
         dhcp: true
         vip:
           ip: 192.168.99.9
 
-  #CP2
   - hostname: cp-2
     ipAddress: 192.168.99.22
     controlPlane: true
+    nameservers: [192.168.99.1, 1.1.1.1]
     installDiskSelector:
-      size: ">=50GB"
+      size: ">= 50GB"
     networkInterfaces:
       - interface: eth0
         dhcp: true
         vip:
           ip: 192.168.99.9
 
-  #CP3
   - hostname: cp-3
     ipAddress: 192.168.99.23
     controlPlane: true
+    nameservers: [192.168.99.1, 1.1.1.1]
     installDiskSelector:
-      size: ">=50GB"
+      size: ">= 50GB"
     networkInterfaces:
       - interface: eth0
         dhcp: true
         vip:
           ip: 192.168.99.9
 
-  #Worker1
-  - hostname: worker1
+  - hostname: worker-1
     ipAddress: 192.168.99.31
     controlPlane: false
+    nameservers: [192.168.99.1, 1.1.1.1]
     installDiskSelector:
-      size: ">=100GB"
+      size: ">= 100GB"
 
-    #Worker2
-  - hostname: worker2
+  - hostname: worker-2
     ipAddress: 192.168.99.32
     controlPlane: false
+    nameservers: [192.168.99.1, 1.1.1.1]
     installDiskSelector:
-      size: ">=100GB"
-
+      size: ">= 100GB"
 
 patches:
   - "@./patches/common.yaml"
-
 
 controlPlane:
   patches:
@@ -83,4 +79,3 @@ controlPlane:
 worker:
   patches:
     - "@./patches/worker.yaml"
-

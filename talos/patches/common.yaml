@@ -1,39 +1,9 @@
-apiVersion: v1alpha1
-kind: ResolverConfig
-nameservers:
-  - 192.168.99.1
-  - 1.1.1.1
-hostDNS:
-  enabled: true
-  forwardKubeDNSToHost: true
-  resolveMemberNames: true
----
-apiVersion: v1alpha1
-kind: TimeSyncConfig
-servers:
-  - time.cloudflare.com
----
-apiVersion: v1alpha1
-kind: SysctlConfig
-sysctls:
-  fs.inotify.max_user_instances: "8192"
-  fs.inotify.max_user_watches: "524288"
-  net.core.somaxconn: "32768"
-  vm.max_map_count: "262144"
----
-apiVersion: v1alpha1
-kind: KubeNetworkConfig
-dnsDomain: cluster.local
-podSubnets:
-  - 10.244.0.0/16
-serviceSubnets:
-  - 10.96.0.0/12
----
-apiVersion: v1alpha1
-kind: KubeProxyConfig
-disabled: true
----
-apiVersion: v1alpha1
-kind: KubePrismConfig
-enabled: true
-port: 7445
+machine:
+  time:
+    servers:
+      - time.cloudflare.com
+  sysctls:
+    fs.inotify.max_user_instances: "8192"
+    fs.inotify.max_user_watches: "524288"
+    net.core.somaxconn: "32768"
+    vm.max_map_count: "262144"

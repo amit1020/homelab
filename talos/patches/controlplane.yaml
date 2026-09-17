@@ -1,6 +1,5 @@
-apiVersion: v1alpha1
-kind: KubeNodeConfig
-allowSchedulingOnControlPlanes: false
+cluster:
+  allowSchedulingOnControlPlanes: false
 ---
 apiVersion: v1alpha1
 kind: NetworkDefaultActionConfig

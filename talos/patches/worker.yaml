@@ -1,21 +1,18 @@
-apiVersion: v1alpha1
-kind: KubeNodeConfig
-nodeLabels:
-  node-role.kubernetes.io/worker: ""
-  topology.kubernetes.io/zone: worker-host
----
-apiVersion: v1alpha1
-kind: KubeletConfig
-extraConfig:
-  maxPods: 200
-extraMounts:
-  - destination: /var/mnt/local-path
-    type: bind
-    source: /var/mnt/local-path
-    options:
-      - bind
-      - rshared
-      - rw
+machine:
+  nodeLabels:
+    node-role.kubernetes.io/worker: ""
+    topology.kubernetes.io/zone: worker-host
+  kubelet:
+    extraConfig:
+      maxPods: 200
+    extraMounts:
+      - destination: /var/mnt/local-path
+        type: bind
+        source: /var/mnt/local-path
+        options:
+          - bind
+          - rshared
+          - rw
 ---
 apiVersion: v1alpha1
 kind: NetworkDefaultActionConfig

@@ -1,0 +1,26 @@
+apiVersion: v1alpha1
+kind: ResolverConfig
+nameservers:
+  - 192.168.99.1
+  - 1.1.1.1
+hostDNS:
+  enable: true
+  forwardKubeDNSTtoHost: true
+  resolverMemberNames: true
+
+---
+apiVersion: v1alpha1
+kind: TimeSyncConfig
+servers:
+  - time.cloudflare.com
+
+---
+apiVersion: v1alpha1
+kind: SysctlConfig
+sysctl:
+  fs.inotify.max_user_instances: "8192"
+  fs.inotify.max_user_watches: "524288"
+  net.core.somaxconn: "32768"
+  vm.max_map_count: "262144"
+
+---

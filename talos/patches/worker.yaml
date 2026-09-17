@@ -52,3 +52,12 @@ portSelector:
 ingress:
   - subnet: 192.168.99.0/24
 ---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: vxlan
+portSelector:
+  ports:
+    - 8472
+  protocol: udp
+ingress:
+  - subnet: 192.168.99.0/24

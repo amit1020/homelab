@@ -1,0 +1,18 @@
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: home-pool
+spec:
+  blocks:
+    - start: 192.168.99.200
+      stop: 192.168.99.220
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: home-l2
+spec:
+  interfaces:
+    - ens18
+  externalIPs: true
+  loadBalancerIPs: true

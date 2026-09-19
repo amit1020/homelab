@@ -1,9 +1,12 @@
 # Homelab — Talos Kubernetes Cluster
 
-A five-node Kubernetes cluster running on Talos Linux, fully declared in this
-repository. Every piece of cluster state lives in Git: machine configuration,
-network layout, workloads, and encrypted secrets. The cluster can be destroyed
-and rebuilt from this repo alone.
+A five-node Kubernetes cluster on Talos Linux, fully declared in this
+repository. Machine configuration, network layout, workloads and encrypted
+secrets all live in Git. The cluster reconciles itself from this repo — and can
+be destroyed and rebuilt from it alone.
+
+> Private addresses are redacted throughout this README. The real values live in
+> `docs/network-plan.md`, which is not published.
 
 ---
 
@@ -12,17 +15,18 @@ and rebuilt from this repo alone.
 ```text
 Internet
    |
-   +-- ASUS router ............ 192.---.---.0/24   home network
+   +-- ASUS router ............ home network, DHCP for the house
           |
           +-- MikroTik (RouterOS 7) ...... routing, DHCP, firewall
                  |
-                 +-- bridge ........ 192.168.---.0/24   MikroTik LAN
-                 +-- vlan99-secure . 192.168.---.0/24   cluster network
-                 +-- wireguard1 .... ---.---.---.0/24     remote access
+                 +-- bridge ........... MikroTik LAN
+                 +-- vlan99-secure .... cluster network  <-- the cluster
+                 +-- wireguard1 ....... remote access
 ```
 
-The cluster lives on an isolated VLAN. Access is over WireGuard only — there is
-no route into VLAN 99 from the home network.
+The cluster sits on an isolated VLAN with no route from the home network.
+Every management path — `talosctl`, `kubectl`, the Proxmox UI — goes through
+WireGuard.
 
 ### Physical hosts
 
@@ -33,16 +37,13 @@ no route into VLAN 99 from the home network.
 
 ### Cluster nodes
 
-| Node | Role | Address | vCPU / RAM / Disk |
-|---|---|---|---|
-| `cp-1` | control plane | 192.168.--.21 | 4 / 8 GB / 60 GB |
-| `cp-2` | control plane | 192.168.--.22 | 4 / 8 GB / 60 GB |
-| `cp-3` | control plane | 192.168.--.23 | 4 / 8 GB / 60 GB |
-| `worker-1` | worker | 192.168.--.31 | 6 / 24 GB / 200 GB |
-| `worker-2` | worker | 192.168.--.32 | 6 / 24 GB / 200 GB |
+| Node | Role | vCPU / RAM / Disk |
+|---|---|---|
+| `cp-1` `cp-2` `cp-3` | control plane | 4 / 8 GB / 60 GB each |
+| `worker-1` `worker-2` | worker | 6 / 24 GB / 200 GB each |
 
-The Kubernetes API is reachable at `192.168.--.9` — a floating VIP that moves
-between control plane nodes via Layer 2 announcements.
+The Kubernetes API answers on a floating VIP that moves between control plane
+nodes via Cilium L2 announcements. No external load balancer.
 
 ---
 
@@ -50,38 +51,46 @@ between control plane nodes via Layer 2 announcements.
 
 | Layer | Choice | Why |
 |---|---|---|
-| OS | [Talos Linux](https://www.talos.dev) v1.14 | Immutable, API-driven, no SSH or shell. Entire machine state derives from one config file. |
-| Config management | [talhelper](https://github.com/budimanjojo/talhelper) | Declares the whole cluster in a single `talconfig.yaml` with native SOPS support. |
-| CNI | [Cilium](https://cilium.io) | eBPF dataplane, full NetworkPolicy, kube-proxy replacement, and L2 load balancing — one component instead of three. |
-| GitOps | [Flux](https://fluxcd.io) | Cluster state reconciles from this repo. No manual `kubectl apply`. |
+| OS | [Talos Linux](https://www.talos.dev) v1.14 | Immutable, API-driven. No SSH, no shell, no package manager. The entire machine derives from one config file. |
+| Config | [talhelper](https://github.com/budimanjojo/talhelper) | Declares all five nodes in one `talconfig.yaml`, with native SOPS support. |
+| CNI | [Cilium](https://cilium.io) 1.17 | eBPF dataplane, NetworkPolicy, kube-proxy replacement and L2 load balancing — one component instead of three. |
+| GitOps | [Flux](https://fluxcd.io) v2.9 | The cluster pulls its own state from this repo. No manual `kubectl apply`. |
 | Secrets | [SOPS](https://github.com/getsops/sops) + age | Encrypted at rest in Git, decrypted in-cluster by Flux. |
-| Storage | local-path-provisioner | Both workers share one physical host, so replicated storage would add complexity without adding durability. |
+| Storage | local-path-provisioner | Both workers share one physical host, so replication would add cost without adding durability. |
 
 ---
 
 ## Design decisions
 
-**Three control plane nodes, not one.** etcd needs a quorum. Three nodes allow
-rolling upgrades and node failure without cluster downtime. This is not true
-HA — all three run on the same physical host — but it exercises the correct
-operational patterns. Two control planes would be strictly worse than one:
-losing either breaks quorum.
+**Three control plane nodes, not one.** etcd needs a quorum. Three allows
+rolling upgrades and survives losing one node. This is not real HA — all three
+are VMs on the same physical host — but it exercises the correct operational
+patterns. Two would be strictly worse than one: losing either breaks quorum.
 
-**Cilium over Flannel.** Flannel works out of the box but offers no
-NetworkPolicy and no observability. Cilium provides pod-level access control,
-Hubble for traffic visibility, and replaces both kube-proxy and MetalLB.
+**Cilium over Flannel.** Flannel works out of the box but has no NetworkPolicy
+and no observability. Cilium gives pod-level access control, Hubble for traffic
+visibility, and replaces both kube-proxy and MetalLB. On Talos it needs explicit
+process capabilities and a manual cgroup root — both are in
+`kubernetes/bootstrap/cilium-values.yaml` with comments explaining why.
 
-**Isolated VLAN.** The cluster has no route to the home network. Remote access
-goes through WireGuard, which keeps the management path and the blast radius
-narrow.
+**GitOps pull, not CI push.** The cluster lives on an isolated VLAN reachable
+only over WireGuard, so a CI runner cannot reach it — and shouldn't have to.
+Flux runs inside the cluster and pulls from Git, so nothing external holds
+cluster credentials and no inbound port is opened. Manual changes are reverted
+within the reconciliation interval.
+
+**Isolated VLAN.** No route from the home network. This also means DNS and NTP
+need explicit firewall rules — a Talos node will not finish booting without a
+synchronized clock, and that dependency is easy to miss.
 
 **local-path over Longhorn or Ceph.** Replicated storage protects against node
-failure. Both workers are VMs on the same physical host, so a host failure
-takes out every replica — the replication would cost resources and buy nothing.
-This changes when a second physical host is added.
+failure, but both workers are VMs on the same host — a host failure takes out
+every replica. Revisit when a second physical host or a NAS exists.
 
-**CEL disk selectors, not device names.** `/dev/sda` is not stable across
-reboots. Selecting by attribute means the same config works on any node.
+**Selectors, not names.** Disks are matched by CEL expression rather than
+`/dev/sda`, because device names are not stable across reboots. The same lesson
+applies to network interfaces: the config names the real interface rather than
+assuming `eth0`.
 
 ---
 
@@ -94,24 +103,46 @@ reboots. Selecting by attribute means the same config works on any node.
 ├── .github/workflows/
 │   └── security.yaml          Server-side secret scanning
 ├── docs/
-│   └── network-plan.md        IPAM — subnets, allocations, reserved ranges
+│   ├── network-plan.md        IPAM — subnets, allocations, reserved ranges
+│   └── incidents/             Post-mortems for problems hit during the build
 ├── scripts/
 │   └── bootstrap.sh           One-command environment setup
 ├── talos/
-│   ├── talconfig.yaml         Cluster definition
+│   ├── talconfig.yaml         Cluster definition — all five nodes
 │   ├── talsecret.sops.yaml    Cluster PKI (encrypted)
 │   ├── schematic-id.txt       Talos Image Factory schematic
-│   └── patches/               Layered config patches
-│       ├── common.yaml        DNS, NTP, sysctls — all nodes
-│       ├── controlplane.yaml  VIP, firewall rules
+│   └── patches/
+│       ├── common.yaml        NTP, sysctls — all nodes
+│       ├── controlplane.yaml  Scheduling policy, firewall rules
 │       └── worker.yaml        Node labels, kubelet mounts
 ├── kubernetes/
-│   ├── bootstrap/             Cilium, Flux — applied once
-│   ├── infrastructure/        Ingress, cert-manager, monitoring
+│   ├── flux/                  Flux's own manifests + Kustomizations
+│   ├── bootstrap/             Cilium config and LB pool
 │   └── apps/                  Workloads
 ├── .sops.yaml                 Encryption rules (public key only)
 └── README.md
 ```
+
+### Configuration layering
+
+Talos config is assembled in layers, so a shared setting is changed in one
+place and propagates to all five nodes:
+
+```text
+base (generated, holds secrets and identity)
+  └─ patches/common.yaml        all five nodes
+       ├─ patches/controlplane.yaml   cp-1..3 only
+       └─ patches/worker.yaml         worker-1..2 only
+```
+
+Anything unique to a single node — hostname, address, disk selector — stays in
+`talconfig.yaml` itself.
+
+> **Note on talhelper.** The installed version predates Talos 1.14 and does not
+> recognise its newer config documents (`KubeNodeConfig`, `ResolverConfig` and
+> others). The patches therefore use the older `machine:` / `cluster:` schema,
+> which Talos still honours. Some fields are generated by talhelper itself and
+> must not be set in a patch — `grep "^kind:" clusterconfig/*.yaml` lists which.
 
 ---
 
@@ -120,7 +151,7 @@ reboots. Selecting by attribute means the same config works on any node.
 ### Prerequisites
 
 - [Homebrew](https://brew.sh)
-- The age private key, restored from backup (never stored in this repo)
+- The age private key, restored from backup — it is never stored in this repo
 
 ### Step 1 — Restore the age key
 
@@ -130,10 +161,10 @@ cp /Volumes/<drive>/homelab/age-key.txt ~/.config/sops/age/keys.txt
 chmod 600 ~/.config/sops/age/keys.txt
 ```
 
-Without this key nothing in the repo can be decrypted, and bootstrap will stop
-with an error.
+Without this key nothing in the repo decrypts, and bootstrap stops with an
+error.
 
-### Step 2 — Bootstrap
+### Step 2 — Bootstrap the environment
 
 ```bash
 git clone git@github.com:USERNAME/homelab.git
@@ -141,32 +172,11 @@ cd homelab
 ./scripts/bootstrap.sh
 ```
 
-Expected output:
-
-```text
--- Tooling --
-v sops already installed
-Installing gitleaks...
-
--- Git hooks --
-v pre-commit hook active
-
--- SOPS key --
-v age key present
-v decryption works
-
-v Environment ready
-```
-
 The script installs tooling, enables the git hooks, and verifies that the key
 decrypts this repo's secrets. It is idempotent — rerunning only fills in what
 is missing.
 
-If the script will not run:
-
-```bash
-chmod +x scripts/bootstrap.sh .githooks/*
-```
+If it will not run: `chmod +x scripts/bootstrap.sh .githooks/*`
 
 ### Manual activation
 
@@ -178,11 +188,21 @@ chmod +x .githooks/*
 git config --get core.hooksPath   # should print: .githooks
 ```
 
-Then install the tools:
+Then the tools:
 
 ```bash
 brew install sops age gitleaks talosctl kubectl helm talhelper
 brew install fluxcd/tap/flux
+```
+
+### Shell environment
+
+Two variables belong in `~/.zshrc`, or SOPS and `kubectl` will fail in any new
+terminal:
+
+```bash
+export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
+export KUBECONFIG="$HOME/Documents/homelab/talos/kubeconfig"
 ```
 
 ---
@@ -193,7 +213,7 @@ Secrets are encrypted with SOPS using an age key. The public key is committed
 in `.sops.yaml`; the private key never touches this repo.
 
 SOPS encrypts values while leaving structure readable, so a diff shows which
-field changed without exposing what it changed to.
+field changed without revealing what it changed to.
 
 ### Editing
 
@@ -202,54 +222,13 @@ sops talos/talsecret.sops.yaml
 ```
 
 Decrypts in memory, opens your editor, re-encrypts on save. The file is never
-written to disk in plaintext.
+plaintext on disk.
 
 > **Never run `sops --decrypt --in-place`.** It leaves the file unencrypted on
-> disk. A forgotten re-encrypt puts the secret in Git history permanently.
+> disk, and a forgotten re-encrypt puts the secret in Git history permanently.
 
-### Creating
-
-```bash
-talhelper gensecret > talos/talsecret.sops.yaml
-sops --encrypt --in-place talos/talsecret.sops.yaml
-head -5 talos/talsecret.sops.yaml   # must show ENC[AES256_GCM
-```
-
-Encryption is a one-time operation. Once encrypted the file stays encrypted —
+Encryption is a one-time operation. Once encrypted, the file stays encrypted —
 there is no per-commit encryption step.
-
----
-
-## Pre-commit hook
-
-`.githooks/pre-commit` blocks any commit that fails these checks:
-
-1. Every staged `*.sops.yaml` contains `ENC[AES256_GCM`
-2. No `talosconfig`, `kubeconfig`, `keys.txt`, or raw `secrets.yaml` is staged
-3. No `AGE-SECRET-KEY-1` or PEM private key appears in the diff
-4. `gitleaks protect --staged` passes (skipped with a warning if not installed)
-
-Checks run cheapest-first, so an obvious failure does not wait on a full scan.
-
-### Verifying it works
-
-```bash
-echo "AGE-SECRET-KEY-1TESTTESTTEST" > test-leak.txt
-git add test-leak.txt
-git commit -m "test"
-```
-
-The commit should be blocked. Clean up:
-
-```bash
-git reset HEAD test-leak.txt && rm test-leak.txt
-```
-
-If it went through, re-run `git config core.hooksPath .githooks`.
-
-To override deliberately: `git commit --no-verify`. Never on a file containing
-secrets — the Actions workflow catches it server-side, but only after it is
-already in history.
 
 ---
 
@@ -262,39 +241,70 @@ already in history.
 | GitHub push protection | On push | Blocks known token formats | A minute |
 | GitHub Actions | After push | Alerts and records | Rotate keys, rebuild |
 
-Earlier layers are cheaper. By the time Actions fires, the secret is already
-in history.
+Earlier layers are cheaper. By the time Actions fires, the secret is already in
+history.
+
+### Pre-commit hook
+
+`.githooks/pre-commit` blocks any commit that fails these checks:
+
+1. Every staged `*.sops.yaml` contains `ENC[AES256_GCM`
+2. No `talosconfig`, `kubeconfig`, `keys.txt` or raw `secrets.yaml` is staged
+3. No age private key or PEM key appears in the diff
+4. `gitleaks protect --staged` passes
+
+Checks run cheapest-first, so an obvious failure does not wait on a full scan.
+
+The third check exists because **gitleaks does not recognise age private keys** —
+it scans for known vendor token formats. A tool that covers the common case
+still needs supplementing for your own threat model.
 
 ---
 
 ## Operations
 
-### Applying config changes
+### Day-to-day
+
+```bash
+# edit something under kubernetes/
+git add . && git commit -m "..." && git push
+# Flux applies it within the reconciliation interval
+```
+
+`kubectl apply` is reserved for debugging. The repo is the source of truth.
+
+```bash
+flux get kustomizations                              # sync status
+flux reconcile kustomization infrastructure          # force a sync
+flux logs --follow                                   # why something failed
+```
+
+### Talos config changes
 
 ```bash
 cd talos
 talhelper genconfig
-talosctl apply-config -n 192.168.---.21 -f clusterconfig/homelab-cp-1.yaml
+talosctl validate --config clusterconfig/homelab-cp-1.yaml --mode metal
+talosctl apply-config -n <cp-1> -f clusterconfig/homelab-cp-1.yaml
 ```
 
 Use `--mode try --timeout 3m` for anything that could cut off access — firewall
-rules, addressing, routing. The node rolls back automatically if you lose
-contact.
+rules, addressing, routing. The node rolls back on its own if contact is lost.
 
 ### Upgrading
 
 ```bash
 # Talos — one node at a time, workers first
-talosctl -n 192.168.---.31 upgrade \
+talosctl -n <node> upgrade \
   --image factory.talos.dev/metal-installer/$(cat talos/schematic-id.txt):v1.14.1
-talosctl -n 192.168.---.21 health
+talosctl -n <cp-1> health
 
-# Kubernetes — separate operation
-talosctl -n 192.168.---.21 upgrade-k8s --to 1.36.4
+# Kubernetes — a separate operation
+talosctl -n <cp-1> upgrade-k8s --to 1.36.4
 ```
 
 Never skip a minor version. Never upgrade without the schematic ID — doing so
-silently strips all system extensions.
+silently strips every system extension, including the Proxmox guest agent.
 
 ### Backups
 
@@ -310,11 +320,36 @@ rights:
 
 ```bash
 talosctl config new backup.talosconfig --roles os:etcd:backup --crt-ttl 8760h
-talosctl --talosconfig backup.talosconfig -n 192.168.---.21 \
+talosctl --talosconfig backup.talosconfig -n <cp-1> \
   etcd snapshot etcd-$(date +%F).snapshot
 ```
 
 Losing the age key is unrecoverable.
+
+---
+
+## Incidents
+
+`docs/incidents/` documents the problems hit while building this — symptom,
+diagnosis and fix for each. A few that cost the most time:
+
+| Problem | Root cause |
+|---|---|
+| Node stuck at `Booting`, network fine | No DNS on the VLAN, so NTP never resolved, so Talos never finished booting |
+| Node lost its address after `apply-config` | Config named `eth0`; the real interface was `ens18` |
+| `certificate signed by unknown authority` | Node held certificates from an earlier install |
+| Flux reported success, applied nothing | A `kustomization.yaml` in the target directory listed no resources |
+| `Access Denied`, fell through to PXE boot | Secure Boot enabled on the Proxmox EFI disk |
+
+Two patterns account for most of them:
+
+**The symptom is rarely where the cause is.** "Port 50000 refused" looked like
+an API problem; the root cause was DNS, two layers down. Reading the log first
+is faster than guessing.
+
+**Wait before fixing.** Several fixes were applied to machines that were simply
+still booting, and each one introduced a new problem — a deleted EFI disk, an
+overwritten network line, a duplicate context. Checking uptime costs a second.
 
 ---
 
@@ -323,10 +358,11 @@ Losing the age key is unrecoverable.
 - [x] Network design and IPAM
 - [x] VM provisioning on Proxmox
 - [x] Secrets management and pre-commit tooling
-- [ ] Talos cluster bootstrap
-- [ ] Cilium
-- [ ] Storage
-- [ ] Flux GitOps
+- [x] Talos cluster bootstrap — 5 nodes
+- [x] Cilium CNI with L2 load balancing
+- [x] Flux GitOps — infrastructure reconciling from Git
+- [ ] Storage (local-path)
+- [ ] Ingress and cert-manager
 - [ ] Monitoring
 
 ## Roadmap
